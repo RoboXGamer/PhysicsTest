@@ -1,0 +1,370 @@
+---
+// FaradayGenerator.astro
+import { useEffect, useState } from 'react';
+
+interface SimulationParams {
+    wheelRadius: number;      // in meters
+    rotationSpeed: number;    // in rad/s
+    magnetStrength: number;   // in Tesla
+    coilTurns: number;       // number of turns in copper coil
+    coilRadius: number;      // in meters
+    coilResistance: number;  // in ohms
+}
+
+const defaultParams: SimulationParams = {
+    wheelRadius: 0.1,        // 10cm radius wheel
+    rotationSpeed: 2 * Math.PI, // 1 revolution per second
+    magnetStrength: 1.2,     // Typical for neodymium magnets
+    coilTurns: 100,         // 100 turns in the coil
+    coilRadius: 0.02,       // 2cm radius coil
+    coilResistance: 5       // 5 ohms resistance
+};
+---
+
+<div class="simulation-container">
+    <canvas id="simulationCanvas" width="800" height="600"></canvas>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label for="rotationSpeed">Rotation Speed (RPM)</label>
+            <input type="range" id="rotationSpeed" min="0" max="1000" step="10" value="60" />
+            <span id="rotationSpeedValue">60 RPM</span>
+        </div>
+        
+        <div class="control-group">
+            <label for="magnetStrength">Magnet Strength (Tesla)</label>
+            <input type="range" id="magnetStrength" min="0.1" max="2" step="0.1" value="1.2" />
+            <span id="magnetStrengthValue">1.2 T</span>
+        </div>
+        
+        <div class="control-group">
+            <label for="coilTurns">Coil Turns</label>
+            <input type="range" id="coilTurns" min="10" max="500" step="10" value="100" />
+            <span id="coilTurnsValue">100</span>
+        </div>
+    </div>
+    
+    <div class="output-display">
+        <div>Induced EMF: <span id="emfValue">0.00</span> V</div>
+        <div>Current: <span id="currentValue">0.00</span> mA</div>
+        <div>Power: <span id="powerValue">0.00</span> mW</div>
+    </div>
+</div>
+
+<script>
+class FaradaySimulation {
+    private canvas: HTMLCanvasElement;
+    private ctx: CanvasRenderingContext2D;
+    private params: any;
+    private wheelAngle: number = 0;
+    private lastTimestamp: number = 0;
+    private particles: Array<{x: number, y: number, vx: number, vy: number}> = [];
+
+    constructor(canvasId: string) {
+        this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
+        this.ctx = this.canvas.getContext('2d')!;
+        this.params = {
+            wheelRadius: 0.1,
+            rotationSpeed: 2 * Math.PI / 60, // 1 revolution per second
+            magnetStrength: 1.2,
+            coilTurns: 100,
+            coilRadius: 0.02,
+            coilResistance: 5
+        };
+        this.initializeParticles();
+        this.setupCanvas();
+    }
+
+    private setupCanvas() {
+        // Set canvas size based on container
+        const container = this.canvas.parentElement;
+        if (container) {
+            const rect = container.getBoundingClientRect();
+            this.canvas.width = rect.width;
+            this.canvas.height = Math.min(rect.width * 0.75, 600); // Maintain aspect ratio
+        }
+    }
+
+    private initializeParticles() {
+        // Initialize electron particles in the copper coil
+        const coilX = this.canvas.width * 0.7;
+        const coilY = this.canvas.height / 2;
+        const coilHeight = this.canvas.height * 0.4;
+        
+        for (let i = 0; i < 30; i++) {
+            this.particles.push({
+                x: coilX + (Math.random() * 20 - 10),
+                y: coilY - coilHeight/2 + Math.random() * coilHeight,
+                vx: 0,
+                vy: 0
+            });
+        }
+    }
+
+    private calculateInducedEMF(deltaTime: number): number {
+        // Calculate magnetic flux change
+        const angularVelocity = this.params.rotationSpeed * 2 * Math.PI; // Convert RPM to rad/s
+        const magneticFluxChange = this.params.magnetStrength * 
+            Math.PI * this.params.coilRadius * this.params.coilRadius * 
+            Math.sin(this.wheelAngle) * angularVelocity;
+        
+        // Faraday's Law: EMF = -N * dΦ/dt
+        return -this.params.coilTurns * magneticFluxChange;
+    }
+
+    private updateParticles(emf: number) {
+        const coilX = this.canvas.width * 0.7;
+        const coilY = this.canvas.height / 2;
+        const coilHeight = this.canvas.height * 0.4;
+        const particleSpeed = Math.abs(emf) * 2;
+
+        this.particles.forEach(particle => {
+            // Update particle position based on EMF
+            particle.vy = emf > 0 ? particleSpeed : -particleSpeed;
+            particle.y += particle.vy;
+            
+            // Keep particles within the coil area
+            if (particle.y > coilY + coilHeight/2) {
+                particle.y = coilY - coilHeight/2;
+            } else if (particle.y < coilY - coilHeight/2) {
+                particle.y = coilY + coilHeight/2;
+            }
+        });
+    }
+
+    private drawWheel() {
+        const centerX = this.canvas.width * 0.3;
+        const centerY = this.canvas.height / 2;
+        const radius = this.canvas.height * 0.3;
+
+        // Draw wheel
+        this.ctx.beginPath();
+        this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        this.ctx.strokeStyle = '#333';
+        this.ctx.lineWidth = 2;
+        this.ctx.stroke();
+
+        // Draw spokes with magnets
+        for (let i = 0; i < 6; i++) {
+            const angle = this.wheelAngle + (i * Math.PI / 3);
+            const x = centerX + radius * Math.cos(angle);
+            const y = centerY + radius * Math.sin(angle);
+
+            // Draw spoke
+            this.ctx.beginPath();
+            this.ctx.moveTo(centerX, centerY);
+            this.ctx.lineTo(x, y);
+            this.ctx.stroke();
+
+            // Draw magnet
+            this.ctx.fillStyle = i % 2 === 0 ? '#ff0000' : '#0000ff';
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, 10, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
+    }
+
+    private drawCoil() {
+        const coilX = this.canvas.width * 0.7;
+        const coilY = this.canvas.height / 2;
+        const coilWidth = this.canvas.width * 0.15;
+        const coilHeight = this.canvas.height * 0.4;
+
+        // Draw copper coil
+        this.ctx.strokeStyle = '#b87333';
+        this.ctx.lineWidth = 3;
+        this.ctx.beginPath();
+        
+        // Draw coil windings
+        const windingSpacing = coilHeight / (this.params.coilTurns / 10);
+        for (let i = 0; i < this.params.coilTurns / 10; i++) {
+            const y = coilY - coilHeight/2 + (i * windingSpacing);
+            this.ctx.moveTo(coilX - coilWidth/2, y);
+            this.ctx.lineTo(coilX + coilWidth/2, y);
+        }
+        this.ctx.stroke();
+    }
+
+    private drawLEDs(emf: number) {
+        const ledY = this.canvas.height * 0.2;
+        const led1X = this.canvas.width * 0.8;
+        const led2X = this.canvas.width * 0.9;
+
+        // Calculate LED brightness based on EMF
+        const brightness = Math.min(Math.abs(emf) / 2, 1);
+        const ledColor = `rgba(255, ${Math.floor(255 * (1 - brightness))}, 0, ${brightness})`;
+
+        // Draw LEDs
+        this.ctx.beginPath();
+        this.ctx.arc(led1X, ledY, 10, 0, Math.PI * 2);
+        this.ctx.arc(led2X, ledY, 10, 0, Math.PI * 2);
+        this.ctx.fillStyle = ledColor;
+        this.ctx.fill();
+
+        // Draw connecting wires
+        this.ctx.strokeStyle = '#666';
+        this.ctx.lineWidth = 2;
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.canvas.width * 0.7 - this.canvas.width * 0.075, this.canvas.height / 2);
+        this.ctx.lineTo(led1X, ledY);
+        this.ctx.moveTo(this.canvas.width * 0.7 + this.canvas.width * 0.075, this.canvas.height / 2);
+        this.ctx.lineTo(led2X, ledY);
+        this.ctx.stroke();
+    }
+
+    public animate(timestamp: number) {
+        if (!this.lastTimestamp) {
+            this.lastTimestamp = timestamp;
+        }
+        const deltaTime = (timestamp - this.lastTimestamp) / 1000;
+        this.lastTimestamp = timestamp;
+
+        // Clear canvas
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Update wheel rotation
+        this.wheelAngle += this.params.rotationSpeed * deltaTime;
+
+        // Calculate EMF using Faraday's Law
+        const emf = this.calculateInducedEMF(deltaTime);
+        const current = emf / this.params.coilResistance;
+        const power = emf * current;
+
+        // Update display values
+        document.getElementById('emfValue')!.textContent = Math.abs(emf).toFixed(2);
+        document.getElementById('currentValue')!.textContent = (Math.abs(current) * 1000).toFixed(2);
+        document.getElementById('powerValue')!.textContent = (Math.abs(power) * 1000).toFixed(2);
+
+        // Draw simulation elements
+        this.drawWheel();
+        this.drawCoil();
+        this.drawLEDs(emf);
+        
+        // Update and draw particles
+        this.updateParticles(emf);
+        this.ctx.fillStyle = '#3498db';
+        this.particles.forEach(particle => {
+            this.ctx.beginPath();
+            this.ctx.arc(particle.x, particle.y, 2, 0, Math.PI * 2);
+            this.ctx.fill();
+        });
+
+        requestAnimationFrame(this.animate.bind(this));
+    }
+
+    public updateParams(newParams: Partial<any>) {
+        this.params = { ...this.params, ...newParams };
+    }
+}
+
+// Initialize simulation when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    const simulation = new FaradaySimulation('simulationCanvas');
+    
+    // Start animation loop
+    requestAnimationFrame((timestamp) => simulation.animate(timestamp));
+
+    // Add event listeners for controls
+    document.getElementById('rotationSpeed')?.addEventListener('input', (e) => {
+        const rpm = parseFloat((e.target as HTMLInputElement).value);
+        simulation.updateParams({ rotationSpeed: rpm / 60 }); // Convert RPM to RPS
+        document.getElementById('rotationSpeedValue')!.textContent = `${rpm} RPM`;
+    });
+
+    document.getElementById('magnetStrength')?.addEventListener('input', (e) => {
+        const strength = parseFloat((e.target as HTMLInputElement).value);
+        simulation.updateParams({ magnetStrength: strength });
+        document.getElementById('magnetStrengthValue')!.textContent = `${strength} T`;
+    });
+
+    document.getElementById('coilTurns')?.addEventListener('input', (e) => {
+        const turns = parseInt((e.target as HTMLInputElement).value);
+        simulation.updateParams({ coilTurns: turns });
+        document.getElementById('coilTurnsValue')!.textContent = turns.toString();
+    });
+});
+</script>
+
+<style>
+.simulation-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    background: #f5f5f5;
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+canvas {
+    width: 100%;
+    max-width: 800px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    background: white;
+    margin-bottom: 20px;
+}
+
+.controls {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 200px;
+}
+
+label {
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #333;
+}
+
+input[type="range"] {
+    width: 100%;
+    margin: 10px 0;
+}
+
+.output-display {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    padding: 15px;
+    background: white;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    width: 100%;
+    max-width: 600px;
+}
+
+.output-display div {
+    text-align: center;
+    font-size: 1.1em;
+    color: #2c3e50;
+}
+
+span {
+    font-weight: bold;
+    color: #e74c3c;
+}
+
+@media (max-width: 768px) {
+    .controls {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .output-display {
+        grid-template-columns: 1fr;
+    }
+}
+</style>

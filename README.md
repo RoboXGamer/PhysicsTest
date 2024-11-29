@@ -1,16 +1,48 @@
-# Astro Starter Kit: Basics
+# Faraday Generator Physics Simulation
 
-```sh
-npm create astro@latest -- --template basics
-```
+This project simulates a Faraday generator using Three.js for 3D visualization. The simulation demonstrates electromagnetic induction through a rotating magnetic wheel and copper coil setup.
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/withastro/astro/tree/latest/examples/basics)
-[![Open with CodeSandbox](https://assets.codesandbox.io/github/button-edit-lime.svg)](https://codesandbox.io/p/sandbox/github/withastro/astro/tree/latest/examples/basics)
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/withastro/astro?devcontainer_path=.devcontainer/basics/devcontainer.json)
+## Components and Structure
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+### Physical Structure
+1. Base Plate
+   - Horizontal flat plate serving as the foundation
+   - Supports all other components
 
-![just-the-basics](https://github.com/withastro/astro/assets/2244813/a0a5533c-a856-4198-8470-2d67b1d7c554)
+2. Copper Coil
+   - Spherical coil design
+   - Mounted horizontally on the base plate
+   - Connected to LED indicators via copper wires
+
+3. Support Structure
+   - Mounted on sides of the coil
+   - Contains bearings for wheel rotation
+   - Provides stable support for the rotating wheel
+
+4. Magnetic Wheel
+   - Mounted above the coil
+   - Contains alternating magnets (N-S poles)
+   - Rotates to induce current in the coil
+
+5. LED Indicators
+   - Two LED lights connected to the coil
+   - Brightness varies with induced current
+   - Demonstrates AC current generation
+
+### Visualization Features
+- Realistic copper coil with spherical winding
+- Magnetic field visualization using particles
+- Real-time EMF, current, and power readings
+- Interactive controls for:
+  - Rotation speed (RPM)
+  - Magnet strength (Tesla)
+  - Number of coil turns
+
+## Technical Implementation
+- Three.js for 3D rendering
+- Physics-based calculations for electromagnetic induction
+- Real-time updates of electrical parameters
+- Particle system for magnetic field visualization
 
 ## 🚀 Project Structure
 

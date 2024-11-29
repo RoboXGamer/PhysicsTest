@@ -1,0 +1,609 @@
+---
+---
+
+<div class="simulation-container">
+    <canvas id="simulation3DCanvas"></canvas>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label for="rotationSpeed3D">Rotation Speed (RPM)</label>
+            <input type="range" id="rotationSpeed3D" min="0" max="1000" step="10" value="60" />
+            <span id="rotationSpeedValue3D">60 RPM</span>
+        </div>
+        
+        <div class="control-group">
+            <label for="magnetStrength3D">Magnet Strength (Tesla)</label>
+            <input type="range" id="magnetStrength3D" min="0.1" max="2" step="0.1" value="1.2" />
+            <span id="magnetStrengthValue3D">1.2 T</span>
+        </div>
+        
+        <div class="control-group">
+            <label for="coilTurns3D">Coil Turns</label>
+            <input type="range" id="coilTurns3D" min="10" max="500" step="10" value="100" />
+            <span id="coilTurnsValue3D">100</span>
+        </div>
+    </div>
+    
+    <div class="output-display">
+        <div>Induced EMF: <span id="emfValue3D">0.00</span> V</div>
+        <div>Current: <span id="currentValue3D">0.00</span> mA</div>
+        <div>Power: <span id="powerValue3D">0.00</span> mW</div>
+    </div>
+</div>
+
+<script>
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+class FaradaySimulation3D {
+    private scene: THREE.Scene;
+    private camera: THREE.PerspectiveCamera;
+    private renderer: THREE.WebGLRenderer;
+    private controls: OrbitControls;
+    private wheel: THREE.Group;
+    private coil: THREE.Group;
+    private particles: THREE.Points;
+    private params: any;
+    private clock: THREE.Clock;
+    private led1: any;
+    private led2: any;
+
+    constructor(canvasId: string) {
+        this.initScene();
+        
+        // Initialize simulation parameters
+        this.params = {
+            rotationSpeed: Math.PI / 30,
+            magnetStrength: 1.2,
+            coilTurns: 100
+        };
+        
+        this.clock = new THREE.Clock();
+        
+        // Create scene elements
+        this.wheel = this.createWheel();
+        this.coil = this.createCoil();
+        this.particles = this.createParticles();
+        
+        // Add elements to scene
+        this.scene.add(this.wheel);
+        this.scene.add(this.coil);
+        this.scene.add(this.particles);
+        
+        // Handle window resize
+        window.addEventListener('resize', this.onWindowResize.bind(this));
+    }
+
+    private initScene() {
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x000000);
+
+        // Camera setup
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.camera.position.set(3, 2, 3);
+        this.camera.lookAt(0, 0, 0);
+
+        // Renderer setup
+        const canvas = document.getElementById('simulation3DCanvas') as HTMLCanvasElement;
+        this.renderer = new THREE.WebGLRenderer({ 
+            canvas, 
+            antialias: true,
+            alpha: true
+        });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this.renderer.physicallyCorrectLights = true;
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        this.scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 5, 5);
+        this.scene.add(directionalLight);
+
+        // Controls
+        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+        this.controls.enableDamping = true;
+        this.controls.dampingFactor = 0.05;
+    }
+
+    private createCoil(): THREE.Group {
+        const coil = new THREE.Group();
+        const coilRadius = 0.3;
+        const wireRadius = 0.015;
+        const turns = this.params.coilTurns;
+        const pointsPerTurn = 32;
+        
+        // Create cylindrical coil points (vertical orientation)
+        const points = [];
+        const coilHeight = 0.4;
+        for (let i = 0; i <= turns * pointsPerTurn; i++) {
+            const t = i / (turns * pointsPerTurn);
+            const angle = t * Math.PI * 2 * turns;
+            const x = Math.cos(angle) * coilRadius;
+            const z = Math.sin(angle) * coilRadius;
+            const y = (t - 0.5) * coilHeight;
+            points.push(new THREE.Vector3(x, y, z));
+        }
+        
+        const curve = new THREE.CatmullRomCurve3(points);
+        const tubeGeometry = new THREE.TubeGeometry(curve, turns * pointsPerTurn, wireRadius, 8, false);
+        const tubeMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xb87333,  // Copper color
+            metalness: 0.8,
+            roughness: 0.2
+        });
+        const tube = new THREE.Mesh(tubeGeometry, tubeMaterial);
+        
+        // Position coil completely outside wheel
+        tube.position.set(-1.2, 0, 0);  // Moved further out
+        coil.add(tube);
+
+        // Add base plate
+        const basePlateGeometry = new THREE.BoxGeometry(2.8, 0.1, 1.5);  // Widened to accommodate new position
+        const basePlateMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x808080,
+            metalness: 0.5,
+            roughness: 0.5
+        });
+        const basePlate = new THREE.Mesh(basePlateGeometry, basePlateMaterial);
+        basePlate.position.y = -0.6;
+        coil.add(basePlate);
+
+        // Add coil support
+        const coilSupportGeometry = new THREE.BoxGeometry(0.1, 0.8, 0.1);
+        const coilSupport = new THREE.Mesh(coilSupportGeometry, basePlateMaterial);
+        coilSupport.position.set(-1.2, -0.2, 0);  // Aligned with coil
+        coil.add(coilSupport);
+
+        // Add LED indicators and connecting wires
+        this.led1 = this.createLED(new THREE.Vector3(-1.4, -0.3, 0.5));
+        this.led2 = this.createLED(new THREE.Vector3(-1.4, -0.3, -0.5));
+        coil.add(this.led1.group);
+        coil.add(this.led2.group);
+
+        // Create connecting wires
+        const wireMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xb87333,
+            metalness: 0.8,
+            roughness: 0.2
+        });
+
+        // Wire from coil to LED1
+        const wire1Points = [
+            new THREE.Vector3(-1.2, 0, 0.2),    // Start at coil
+            new THREE.Vector3(-1.4, -0.3, 0.5)  // End at LED1
+        ];
+        const wire1Curve = new THREE.CatmullRomCurve3(wire1Points);
+        const wire1Geometry = new THREE.TubeGeometry(wire1Curve, 8, 0.01, 8, false);
+        const wire1 = new THREE.Mesh(wire1Geometry, wireMaterial);
+        coil.add(wire1);
+
+        // Wire from LED1 to LED2
+        const wire2Points = [
+            new THREE.Vector3(-1.4, -0.3, 0.5),   // Start at LED1
+            new THREE.Vector3(-1.4, -0.3, -0.5)   // End at LED2
+        ];
+        const wire2Curve = new THREE.CatmullRomCurve3(wire2Points);
+        const wire2Geometry = new THREE.TubeGeometry(wire2Curve, 8, 0.01, 8, false);
+        const wire2 = new THREE.Mesh(wire2Geometry, wireMaterial);
+        coil.add(wire2);
+
+        // Wire back to coil
+        const wire3Points = [
+            new THREE.Vector3(-1.4, -0.3, -0.5),  // Start at LED2
+            new THREE.Vector3(-1.2, 0, -0.2)      // End at coil
+        ];
+        const wire3Curve = new THREE.CatmullRomCurve3(wire3Points);
+        const wire3Geometry = new THREE.TubeGeometry(wire3Curve, 8, 0.01, 8, false);
+        const wire3 = new THREE.Mesh(wire3Geometry, wireMaterial);
+        coil.add(wire3);
+        
+        return coil;
+    }
+
+    private createLED(position: THREE.Vector3): any {
+        const group = new THREE.Group();
+        
+        // LED bulb
+        const bulbGeometry = new THREE.SphereGeometry(0.05, 16, 16);
+        const bulbMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff4444,
+            roughness: 0.3,
+            metalness: 0.7,
+            transparent: true,
+            opacity: 0.9
+        });
+        const bulb = new THREE.Mesh(bulbGeometry, bulbMaterial);
+
+        // LED glow
+        const glowGeometry = new THREE.SphereGeometry(0.08, 16, 16);
+        const glowMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff0000,
+            transparent: true,
+            opacity: 0.3,
+            blending: THREE.AdditiveBlending
+        });
+        const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+
+        group.add(bulb);
+        group.add(glow);
+        group.position.copy(position);
+
+        return { group, bulb, glow };
+    }
+
+    private createWheel(): THREE.Group {
+        const wheelGroup = new THREE.Group();
+
+        // Create main wheel (ring)
+        const wheelGeometry = new THREE.TorusGeometry(0.5, 0.05, 16, 32);
+        const wheelMaterial = new THREE.MeshStandardMaterial({
+            color: 0x444444,
+            roughness: 0.7,
+            metalness: 0.3,
+            emissive: 0x000000,
+            side: THREE.DoubleSide
+        });
+        
+        const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+        wheel.rotation.x = Math.PI / 2; // Rotate ring to be horizontal
+        wheelGroup.add(wheel);
+
+        // Create central support pole
+        const poleGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.8, 8);
+        const poleMaterial = new THREE.MeshStandardMaterial({
+            color: 0x333333,
+            roughness: 0.7,
+            metalness: 0.3
+        });
+        const pole = new THREE.Mesh(poleGeometry, poleMaterial);
+        pole.position.y = -0.4;
+        wheelGroup.add(pole);
+
+        // Add magnet spheres around the ring
+        const magnetCount = 8;
+        const magnetGeometry = new THREE.SphereGeometry(0.06, 16, 16);
+
+        for (let i = 0; i < magnetCount; i++) {
+            const angle = (i / magnetCount) * Math.PI * 2;
+            const magnet = new THREE.Mesh(magnetGeometry);
+            
+            // Position magnets on x-z plane for horizontal rotation
+            magnet.position.x = Math.cos(angle) * 0.5;
+            magnet.position.z = Math.sin(angle) * 0.5;
+            
+            // Alternate magnet colors (red and blue for N/S poles)
+            magnet.material = new THREE.MeshStandardMaterial({
+                color: i % 2 === 0 ? 0xff0000 : 0x0044ff,
+                roughness: 0.6,
+                metalness: 0.4,
+                emissive: 0x000000
+            });
+            
+            wheelGroup.add(magnet);
+        }
+
+        return wheelGroup;
+    }
+
+    private createMagnet(): THREE.Mesh {
+        const magnetGeometry = new THREE.BoxGeometry(0.4, 0.15, 0.15);
+        const magnetMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff0000,
+            roughness: 0.6,
+            metalness: 0.4,
+            emissive: 0x000000
+        });
+        return new THREE.Mesh(magnetGeometry, magnetMaterial);
+    }
+
+    private createParticles(): THREE.Points {
+        const particleCount = 500;
+        const positions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+        
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        
+        const material = new THREE.PointsMaterial({
+            size: 0.05,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.6
+        });
+        
+        const particles = new THREE.Points(geometry, material);
+        this.resetParticles();
+        return particles;
+    }
+
+    private resetParticles() {
+        if (!this.particles) return;
+        
+        const positions = this.particles.geometry.attributes.position.array;
+        const colors = this.particles.geometry.attributes.color.array;
+        const particleCount = positions.length / 3;
+        
+        for (let i = 0; i < particleCount; i++) {
+            // Create particles in a toroidal region around the wheel
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 1.2 + Math.random() * 0.4;  
+            const height = (Math.random() - 0.5) * 0.4;
+            
+            positions[i * 3] = Math.cos(angle) * radius;
+            positions[i * 3 + 1] = Math.sin(angle) * radius;
+            positions[i * 3 + 2] = height;
+            
+            // Set initial color (blue for positive field, red for negative)
+            const isPositive = Math.random() > 0.5;
+            colors[i * 3] = isPositive ? 0 : 1;     
+            colors[i * 3 + 1] = 0;                  
+            colors[i * 3 + 2] = isPositive ? 1 : 0; 
+        }
+        
+        this.particles.geometry.attributes.position.needsUpdate = true;
+        this.particles.geometry.attributes.color.needsUpdate = true;
+    }
+
+    private updateParticles(emf: number) {
+        if (!this.particles) return;
+        
+        const positions = this.particles.geometry.attributes.position.array;
+        const colors = this.particles.geometry.attributes.color.array;
+        const particleCount = positions.length / 3;
+        
+        for (let i = 0; i < particleCount; i++) {
+            // Update particle positions based on magnetic field
+            const x = positions[i * 3];
+            const y = positions[i * 3 + 1];
+            const z = positions[i * 3 + 2];
+            
+            // Calculate field direction (simplified)
+            const angle = Math.atan2(y, x);
+            const radius = Math.sqrt(x * x + y * y);
+            
+            // Move particles in a circular pattern
+            const speed = 0.02 * emf;
+            positions[i * 3] = Math.cos(angle + speed) * radius;
+            positions[i * 3 + 1] = Math.sin(angle + speed) * radius;
+            
+            // Reset particles that get too far from the wheel
+            if (radius > 2.0 || Math.abs(z) > 0.3) {
+                const newAngle = Math.random() * Math.PI * 2;
+                const newRadius = 1.2 + Math.random() * 0.4;
+                positions[i * 3] = Math.cos(newAngle) * newRadius;
+                positions[i * 3 + 1] = Math.sin(newAngle) * newRadius;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 0.4;
+            }
+            
+            // Update color based on field strength
+            const fieldStrength = Math.abs(emf);
+            const isPositive = emf > 0;
+            colors[i * 3] = isPositive ? 0 : fieldStrength;     
+            colors[i * 3 + 1] = 0;                              
+            colors[i * 3 + 2] = isPositive ? fieldStrength : 0; 
+        }
+        
+        this.particles.geometry.attributes.position.needsUpdate = true;
+        this.particles.geometry.attributes.color.needsUpdate = true;
+    }
+
+    private calculateInducedEMF(): number {
+        const wheelRotation = this.wheel.rotation.y;
+        
+        // Calculate magnetic field at coil position
+        const magnetStrength = this.params.magnetStrength;
+        const coilTurns = this.params.coilTurns;
+        
+        // Calculate angular velocity in radians per second
+        const angularVelocity = (this.params.rotationSpeed / 60) * 2 * Math.PI;
+        
+        // Effective area of the coil
+        const coilRadius = 0.3; // Radius of the coil
+        const coilArea = Math.PI * coilRadius * coilRadius;
+        
+        // EMF calculation using Faraday's law
+        // EMF = -N * d(phi)/dt = -N * B * A * omega * sin(theta)
+        // Where:
+        // N = number of turns
+        // B = magnetic field strength
+        // A = coil area
+        // omega = angular velocity
+        // theta = angle between magnetic field and coil normal
+        
+        const emf = coilTurns * magnetStrength * coilArea * angularVelocity * Math.cos(wheelRotation);
+        
+        // Scale the EMF to get reasonable values
+        const scalingFactor = 0.01;
+        return emf * scalingFactor;
+    }
+
+    private onWindowResize() {
+        const canvas = this.renderer.domElement;
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        
+        this.camera.aspect = width / height;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(width, height, false);
+    }
+
+    private updateLEDIntensity(led1: any, led2: any, current: number) {
+        const intensity = Math.abs(current);
+        const maxIntensity = 0.3;
+        const scaledIntensity = Math.min(intensity * 2, maxIntensity);
+        
+        // Make both LEDs glow identically
+        led1.bulb.material.emissive.setRGB(scaledIntensity, 0, 0);
+        led1.glow.material.opacity = scaledIntensity;
+        led2.bulb.material.emissive.setRGB(scaledIntensity, 0, 0);
+        led2.glow.material.opacity = scaledIntensity;
+    }
+
+    public updateScene() {
+        // Update wheel rotation
+        const deltaTime = this.clock.getDelta();
+        this.wheel.rotation.y += (this.params.rotationSpeed / 60) * 2 * Math.PI * deltaTime;
+        
+        // Calculate EMF and update displays
+        const emf = this.calculateInducedEMF();
+        const resistance = 5;
+        const current = emf / resistance;
+        const power = emf * current;
+        
+        // Update particles
+        this.updateParticles(emf);
+        
+        // Update LED brightness based on current
+        const ledBrightness = Math.abs(current) * 2;
+        this.updateLEDIntensity(this.led1, this.led2, current);
+        
+        // Update controls and render
+        this.controls.update();
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    public animate() {
+        requestAnimationFrame(this.animate.bind(this));
+        
+        const delta = this.clock.getDelta();
+        
+        // Update wheel rotation
+        this.wheel.rotation.y += (this.params.rotationSpeed / 60) * 2 * Math.PI * delta;
+        
+        // Calculate and update values
+        const emf = this.calculateInducedEMF();
+        const resistance = 5; // ohms
+        const current = emf / resistance;
+        const power = Math.abs(emf * current);
+        
+        // Update displays
+        document.getElementById('emfValue3D').textContent = Math.abs(emf).toFixed(2);
+        document.getElementById('currentValue3D').textContent = Math.abs(current * 1000).toFixed(2);
+        document.getElementById('powerValue3D').textContent = Math.abs(power * 1000).toFixed(2);
+        
+        // Update visual elements
+        this.updateParticles(emf);
+        this.updateLEDIntensity(this.led1, this.led2, current);
+        
+        this.controls.update();
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    public updateParams(newParams: Partial<any>) {
+        this.params = { ...this.params, ...newParams };
+    }
+}
+
+// Initialize simulation when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    const simulation = new FaradaySimulation3D('simulation3DCanvas');
+    simulation.animate();
+    
+    // Add event listeners for controls
+    document.getElementById('rotationSpeed3D')?.addEventListener('input', (e) => {
+        const rpm = parseFloat((e.target as HTMLInputElement).value);
+        simulation.updateParams({ rotationSpeed: (rpm / 60) * 2 * Math.PI });
+        document.getElementById('rotationSpeedValue3D')!.textContent = `${rpm} RPM`;
+    });
+    
+    document.getElementById('magnetStrength3D')?.addEventListener('input', (e) => {
+        const strength = parseFloat((e.target as HTMLInputElement).value);
+        simulation.updateParams({ magnetStrength: strength });
+        document.getElementById('magnetStrengthValue3D')!.textContent = `${strength} T`;
+    });
+    
+    document.getElementById('coilTurns3D')?.addEventListener('input', (e) => {
+        const turns = parseInt((e.target as HTMLInputElement).value);
+        simulation.updateParams({ coilTurns: turns });
+        document.getElementById('coilTurnsValue3D')!.textContent = turns.toString();
+    });
+});
+</script>
+
+<style>
+.simulation-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    height: 100vh;
+    background: #000;
+}
+
+canvas {
+    width: 100% !important;
+    height: 100% !important;
+    background: #000;
+}
+
+.controls {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 20px;
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 10px;
+    z-index: 1000;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 200px;
+}
+
+label {
+    color: white;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+input[type="range"] {
+    width: 100%;
+    margin: 10px 0;
+}
+
+.output-display {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 5px;
+    z-index: 1000;
+}
+
+.output-display div {
+    text-align: center;
+    font-size: 1.1em;
+    color: white;
+}
+
+span {
+    font-weight: bold;
+    color: #e74c3c;
+}
+
+@media (max-width: 768px) {
+    .controls {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .output-display {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
